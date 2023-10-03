@@ -3,7 +3,12 @@
 namespace App;
 
 use arajcany\ToolBox\Utility\TextFormatter;
+use Cake\I18n\FrozenTime;
 use League\CLImate\CLImate;
+use League\Flysystem\FileAttributes;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
+use League\Flysystem\StorageAttributes;
 
 class CliLogger extends CLImate
 {
@@ -23,8 +28,54 @@ class CliLogger extends CLImate
             $this->baseLogPath = LOGS;
         }
 
+        $this->purgeLogFiles();
+
         if (!is_dir($this->baseLogPath)) {
             @mkdir($this->baseLogPath, 0777, true);
+        }
+
+    }
+
+    /**
+     * Purge files older than the specified hours
+     *
+     * @param int $olderThanHours
+     * @return void
+     */
+    public function purgeLogFiles(int $olderThanHours = 24): void
+    {
+        try {
+            $adapter = new LocalFilesystemAdapter($this->baseLogPath);
+            $filesystem = new Filesystem($adapter);
+
+            $listing = $filesystem->listContents('');
+
+            $deletionTime = (new FrozenTime())->subHours($olderThanHours);
+
+            /** @var StorageAttributes $item */
+            foreach ($listing as $item) {
+                if ($item instanceof FileAttributes) {
+                    $pathOriginals = $item->path();
+                    $dateParts = str_replace([".log", ".txt"], "", $pathOriginals);
+                    $dateParts = explode("-", pathinfo($dateParts, PATHINFO_FILENAME));
+                    if (count($dateParts) !== 6) {
+                        continue;
+                    }
+
+                    $timestamp = (new FrozenTime())
+                        ->year($dateParts[0])
+                        ->month($dateParts[1])
+                        ->day($dateParts[2])
+                        ->hour($dateParts[3])
+                        ->minute($dateParts[4])
+                        ->second($dateParts[5]);
+
+                    if ($timestamp->lte($deletionTime)) {
+                        unlink($this->baseLogPath . $pathOriginals);
+                    }
+                }
+            }
+        } catch (\Throwable $exception) {
         }
     }
 
